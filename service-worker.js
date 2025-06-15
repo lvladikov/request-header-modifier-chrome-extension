@@ -70,7 +70,10 @@ const applyRulesFromStorage = async () => {
     "requestHeaders",
   ]);
   if (hostnames) {
+    // Only update rules if there are hostnames specified
     await updateRules(hostnames, requestHeaders || "");
+  } else {
+    await clearAllRules(); // Clear rules if no hostnames are set
   }
 };
 
@@ -79,20 +82,41 @@ const updateRules = async (hostnamesStr, headersStr) => {
     .split("\n")
     .map((h) => h.trim())
     .filter(Boolean);
-  if (domains.length === 0) {
-    await clearAllRules();
-    return;
-  }
 
+  // Parse custom request headers
   const requestHeadersToAdd = headersStr
     .split("\n")
     .map((line) => {
       const parts = line.split(":");
-      return parts.length === 2
-        ? { header: parts[0].trim(), operation: "set", value: parts[1].trim() }
+      return parts.length >= 2 // Ensure there's at least a name and some value
+        ? {
+            header: parts[0].trim(),
+            operation: "set",
+            value: parts.slice(1).join(":").trim(),
+          }
         : null;
     })
     .filter(Boolean);
+
+  // Define default CORS response headers
+  const corsResponseHeaders = [
+    { header: "Access-Control-Allow-Origin", operation: "set", value: "*" },
+    {
+      header: "Access-Control-Allow-Methods",
+      operation: "set",
+      value: "GET, POST, PUT, DELETE, PATCH, OPTIONS",
+    },
+    {
+      header: "Access-Control-Allow-Headers",
+      operation: "set",
+      value: "*",
+    },
+  ];
+
+  if (domains.length === 0 && requestHeadersToAdd.length === 0) {
+    await clearAllRules(); // If no domains and no custom headers, clear rules
+    return;
+  }
 
   const newRule = {
     id: RULE_ID_MODIFY_HEADERS,
@@ -100,22 +124,10 @@ const updateRules = async (hostnamesStr, headersStr) => {
     action: {
       type: "modifyHeaders",
       requestHeaders: requestHeadersToAdd,
-      responseHeaders: [
-        { header: "Access-Control-Allow-Origin", operation: "set", value: "*" },
-        {
-          header: "Access-Control-Allow-Methods",
-          operation: "set",
-          value: "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-        },
-        {
-          header: "Access-Control-Allow-Headers",
-          operation: "set",
-          value: "*",
-        },
-      ],
+      responseHeaders: corsResponseHeaders, // Always include CORS response headers
     },
     condition: {
-      domains,
+      domains: domains,
       resourceTypes: [
         "main_frame",
         "sub_frame",
@@ -149,14 +161,293 @@ const clearAllRules = async () => {
 
 // Message Listener for communication from the popup and content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.type === "updateRules") {
-    // When popup saves, just trigger the main apply function.
-    applyRulesFromStorage().then(() => sendResponse({ success: true }));
-    return true; // Async response.
-  } else if (request.type === "toggleExtension") {
-    chrome.storage.local.set({ isEnabled: request.isEnabled }, () => {
-      sendResponse({ success: true, isEnabled: request.isEnabled });
-    });
-    return true; // Async response.
-  }
+  (async () => {
+    console.log(
+      `service-worker.js: Received message. Type: '${request.type}', Method: '${request.method}', Payload:`,
+      request.payload
+    ); // Added logging
+    let success = false;
+    let data = null;
+
+    if (request.type === "updateRules") {
+      // Triggered by popup save button
+      await applyRulesFromStorage();
+      success = true;
+    } else if (request.type === "apiCall") {
+      // This is the expected message type from content-script.js
+      // API calls from content script
+      const { method, payload } = request;
+
+      switch (
+        method // This switch handles the specific API methods
+      ) {
+        case "toggleExtension":
+          await chrome.storage.local.set({ isEnabled: payload.isEnabled });
+          success = true;
+          data = { isEnabled: payload.isEnabled };
+          break;
+
+        case "addHostname":
+          const currentHostnames =
+            (await chrome.storage.sync.get("hostnames")).hostnames || "";
+          let hostnameArray = currentHostnames
+            .split("\n")
+            .map((h) => h.trim())
+            .filter(Boolean);
+          const newHostname = payload.hostname;
+          if (!hostnameArray.includes(newHostname)) {
+            hostnameArray.push(newHostname);
+            const updatedHostnames = hostnameArray.join("\n");
+            await chrome.storage.sync.set({ hostnames: updatedHostnames });
+            await applyRulesFromStorage();
+            success = true;
+          } else {
+            console.log(`Hostname '${newHostname}' already exists.`);
+            success = false; // Indicate no change if already present
+          }
+          break;
+
+        case "addMultipleHostnames":
+          const currentHostnamesMulti =
+            (await chrome.storage.sync.get("hostnames")).hostnames || "";
+          let hostnameArrayMulti = currentHostnamesMulti
+            .split("\n")
+            .map((h) => h.trim())
+            .filter(Boolean);
+          let changedHostnames = false;
+          payload.hostnames.forEach((newHostname) => {
+            if (!hostnameArrayMulti.includes(newHostname)) {
+              hostnameArrayMulti.push(newHostname);
+              changedHostnames = true;
+            }
+          });
+          if (changedHostnames) {
+            const updatedHostnames = hostnameArrayMulti.join("\n");
+            await chrome.storage.sync.set({ hostnames: updatedHostnames });
+            await applyRulesFromStorage();
+            success = true;
+          } else {
+            console.log("No new hostnames to add.");
+            success = false;
+          }
+          break;
+
+        case "removeHostname":
+          const currentHostnamesRemove =
+            (await chrome.storage.sync.get("hostnames")).hostnames || "";
+          let hostnameArrayRemove = currentHostnamesRemove
+            .split("\n")
+            .map((h) => h.trim())
+            .filter(Boolean);
+          const hostnameToRemove = payload.hostname;
+          const initialLength = hostnameArrayRemove.length;
+          hostnameArrayRemove = hostnameArrayRemove.filter(
+            (h) => h !== hostnameToRemove
+          );
+          if (hostnameArrayRemove.length < initialLength) {
+            const updatedHostnames = hostnameArrayRemove.join("\n");
+            await chrome.storage.sync.set({ hostnames: updatedHostnames });
+            await applyRulesFromStorage();
+            success = true;
+          } else {
+            console.log(`Hostname '${hostnameToRemove}' not found.`);
+            success = false; // Indicate no change if not found
+          }
+          break;
+
+        case "removeMultipleHostnames":
+          const currentHostnamesRemoveMulti =
+            (await chrome.storage.sync.get("hostnames")).hostnames || "";
+          let hostnameArrayRemoveMulti = currentHostnamesRemoveMulti
+            .split("\n")
+            .map((h) => h.trim())
+            .filter(Boolean);
+          let removedHostnames = false;
+          payload.hostnames.forEach((hostnameToRemove) => {
+            const initialLen = hostnameArrayRemoveMulti.length;
+            hostnameArrayRemoveMulti = hostnameArrayRemoveMulti.filter(
+              (h) => h !== hostnameToRemove
+            );
+            if (hostnameArrayRemoveMulti.length < initialLen) {
+              removedHostnames = true;
+            }
+          });
+          if (removedHostnames) {
+            const updatedHostnames = hostnameArrayRemoveMulti.join("\n");
+            await chrome.storage.sync.set({ hostnames: updatedHostnames });
+            await applyRulesFromStorage();
+            success = true;
+          } else {
+            console.log("No specified hostnames were found to remove.");
+            success = false;
+          }
+          break;
+
+        case "clearHostnames":
+          await chrome.storage.sync.set({ hostnames: "" });
+          await applyRulesFromStorage();
+          success = true;
+          break;
+
+        case "addHeader":
+          const currentHeaders =
+            (await chrome.storage.sync.get("requestHeaders")).requestHeaders ||
+            "";
+          let headerLines = currentHeaders
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean);
+          const newHeaderName = payload.headerName;
+          const newHeaderValue = payload.headerValue;
+
+          let headerFound = false;
+          // Update existing header if name matches
+          headerLines = headerLines.map((line) => {
+            const [name] = line.split(":");
+            if (name.trim().toLowerCase() === newHeaderName.toLowerCase()) {
+              headerFound = true;
+              return `${newHeaderName}: ${newHeaderValue}`; // Update existing header line
+            }
+            return line;
+          });
+
+          // Add new header if not found
+          if (!headerFound) {
+            headerLines.push(`${newHeaderName}: ${newHeaderValue}`);
+          }
+
+          const updatedHeaders = headerLines.join("\n");
+          await chrome.storage.sync.set({ requestHeaders: updatedHeaders });
+          await applyRulesFromStorage();
+          success = true;
+          break;
+
+        case "addMultipleHeaders":
+          const currentHeadersMulti =
+            (await chrome.storage.sync.get("requestHeaders")).requestHeaders ||
+            "";
+          let headerLinesMulti = currentHeadersMulti
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean);
+          let changedHeaders = false;
+
+          payload.headers.forEach((newHeader) => {
+            let headerName = newHeader.headerName;
+            let headerValue = newHeader.headerValue;
+            let found = false;
+
+            // Check if header already exists by name and update
+            headerLinesMulti = headerLinesMulti.map((line) => {
+              const [existingName] = line.split(":");
+              if (
+                existingName.trim().toLowerCase() === headerName.toLowerCase()
+              ) {
+                found = true;
+                changedHeaders = true;
+                return `${headerName}: ${headerValue}`;
+              }
+              return line;
+            });
+
+            // If not found, add it as a new header
+            if (!found) {
+              headerLinesMulti.push(`${headerName}: ${headerValue}`);
+              changedHeaders = true;
+            }
+          });
+
+          if (changedHeaders) {
+            const updatedHeaders = headerLinesMulti.join("\n");
+            await chrome.storage.sync.set({ requestHeaders: updatedHeaders });
+            await applyRulesFromStorage();
+            success = true;
+          } else {
+            console.log("No new headers to add or update.");
+            success = false;
+          }
+          break;
+
+        case "removeHeader":
+          const currentHeadersRemove =
+            (await chrome.storage.sync.get("requestHeaders")).requestHeaders ||
+            "";
+          let headerLinesRemove = currentHeadersRemove
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean);
+          const headerNameToRemove = payload.headerName;
+
+          const initialHeaderLength = headerLinesRemove.length;
+          headerLinesRemove = headerLinesRemove.filter((line) => {
+            const [name] = line.split(":");
+            return (
+              name.trim().toLowerCase() !== headerNameToRemove.toLowerCase()
+            );
+          });
+
+          if (headerLinesRemove.length < initialHeaderLength) {
+            const updatedHeaders = headerLinesRemove.join("\n");
+            await chrome.storage.sync.set({ requestHeaders: updatedHeaders });
+            await applyRulesFromStorage();
+            success = true;
+          } else {
+            console.log(`Header '${headerNameToRemove}' not found.`);
+            success = false; // Indicate no change if not found
+          }
+          break;
+
+        case "removeMultipleHeaders":
+          const currentHeadersRemoveMulti =
+            (await chrome.storage.sync.get("requestHeaders")).requestHeaders ||
+            "";
+          let headerLinesRemoveMulti = currentHeadersRemoveMulti
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean);
+          let removedHeaders = false;
+
+          payload.headerNames.forEach((headerNameToRemove) => {
+            const initialLen = headerLinesRemoveMulti.length;
+            headerLinesRemoveMulti = headerLinesRemoveMulti.filter((line) => {
+              const [name] = line.split(":");
+              return (
+                name.trim().toLowerCase() !== headerNameToRemove.toLowerCase()
+              );
+            });
+            if (headerLinesRemoveMulti.length < initialLen) {
+              removedHeaders = true;
+            }
+          });
+
+          if (removedHeaders) {
+            const updatedHeaders = headerLinesRemoveMulti.join("\n");
+            await chrome.storage.sync.set({ requestHeaders: updatedHeaders });
+            await applyRulesFromStorage();
+            success = true;
+          } else {
+            console.log("No specified headers were found to remove.");
+            success = false;
+          }
+          break;
+
+        case "clearHeaders":
+          await chrome.storage.sync.set({ requestHeaders: "" });
+          await applyRulesFromStorage();
+          success = true;
+          break;
+
+        default:
+          console.warn("Unknown API method:", method);
+          success = false;
+          break;
+      }
+    } else {
+      console.warn("Unknown message type:", request.type);
+      success = false;
+    }
+
+    sendResponse({ success: success, data: data });
+  })();
+  return true; // Indicates that the response will be sent asynchronously
 });

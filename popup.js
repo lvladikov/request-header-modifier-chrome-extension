@@ -3,7 +3,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const requestHeadersInput = document.getElementById("request-headers");
   const saveButton = document.getElementById("save-button");
   const clearButton = document.getElementById("clear-button");
-  const corsButton = document.getElementById("cors-button"); // Get the new CORS button
+  const corsButton = document.getElementById("cors-button");
   const statusMessage = document.getElementById("status-message");
   const enableToggle = document.getElementById("enable-toggle");
   const statusText = document.getElementById("status-text");
@@ -33,8 +33,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const hostnames = hostnamesInput.value.trim();
     const requestHeaders = requestHeadersInput.value.trim();
 
-    if (!hostnames) {
-      showStatus("At least one hostname is required!", true);
+    if (!hostnames && !requestHeaders) {
+      showStatus("Please enter hostnames or headers to apply rules.", true);
       return;
     }
 
@@ -43,6 +43,8 @@ document.addEventListener("DOMContentLoaded", () => {
       chrome.runtime.sendMessage({ type: "updateRules" }, (response) => {
         if (response?.success) {
           showStatus("Rules applied successfully!", false);
+        } else {
+          showStatus("Failed to apply rules.", true);
         }
       });
     });
@@ -65,8 +67,8 @@ document.addEventListener("DOMContentLoaded", () => {
   // CORS button event listener
   corsButton.addEventListener("click", () => {
     requestHeadersInput.value = `Access-Control-Allow-Origin: *
-Access-Control-Allow-Methods: GET, POST, PUT, DELETE
-Access-Control-Allow-Headers: Content-Type`;
+Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS
+Access-Control-Allow-Headers: *`;
     showStatus("CORS headers pre-filled!", false);
   });
 
@@ -89,6 +91,15 @@ Access-Control-Allow-Headers: Content-Type`;
   chrome.storage.onChanged.addListener((changes, namespace) => {
     if (namespace === "local" && changes.isEnabled) {
       updateToggleUI(changes.isEnabled.newValue);
+    }
+    // Listen for changes in sync storage (where hostnames and headers are stored)
+    if (namespace === "sync") {
+      if (changes.hostnames) {
+        hostnamesInput.value = changes.hostnames.newValue || "";
+      }
+      if (changes.requestHeaders) {
+        requestHeadersInput.value = changes.requestHeaders.newValue || "";
+      }
     }
   });
 

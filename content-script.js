@@ -25,49 +25,56 @@ injectScript(chrome.runtime.getURL("main.js"), "body");
 
 // Listen for messages from the main script (main.js)
 window.addEventListener("message", (event) => {
-  // We only accept messages from ourselves
-  if (event.source !== window) {
+  // We only accept messages from ourselves and ensure it's a REQUEST_HEADER_MODIFIER_API_CALL
+  if (
+    event.source !== window ||
+    !event.data ||
+    event.data.type !== "REQUEST_HEADER_MODIFIER_API_CALL"
+  ) {
     return;
   }
 
-  // Check if the message is from our CORS Modifier API
-  if (event.data && event.data.type === "CORS_MODIFIER_API_CALL") {
-    const { method } = event.data;
-    let isEnabled;
+  const { method, payload, messageId } = event.data; // Extract method, payload, and messageId
 
-    if (method === "enable") {
-      isEnabled = true;
-    } else if (method === "disable") {
-      isEnabled = false;
-    } else {
-      console.warn("Unknown CORS_MODIFIER_API_CALL method:", method);
-      return;
-    }
-
-    // Now, send the message to the service worker
-    chrome.runtime.sendMessage(
-      { type: "toggleExtension", isEnabled: isEnabled },
-      (response) => {
-        if (chrome.runtime.lastError) {
-          console.error(
-            "Error relaying message to service worker:",
-            chrome.runtime.lastError
-          );
-        } else {
-          console.log(
-            `Relayed '${method}' request to service worker. Success: ${response.success}, Enabled: ${response.isEnabled}`
-          );
-          // Send a response back to the main world
-          event.source.postMessage(
-            {
-              type: "CORS_MODIFIER_API_RESPONSE",
-              success: response.success,
-              isEnabled: response.isEnabled,
-            },
-            event.origin
-          );
-        }
+  console.log(
+    `content-script.js: Relaying message to service worker. Type: 'apiCall', Method: '${method}', Payload:`,
+    payload
+  );
+  // Send the message to the service worker
+  // The service worker's listener expects type "apiCall" for these specific method calls
+  chrome.runtime.sendMessage(
+    { type: "apiCall", method: method, payload: payload },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        console.error(
+          "Error relaying message to service worker:",
+          chrome.runtime.lastError.message
+        );
+        // Send back an error response to the main world
+        event.source.postMessage(
+          {
+            type: "REQUEST_HEADER_MODIFIER_API_RESPONSE",
+            messageId: messageId, // Include messageId in response
+            success: false,
+            error: chrome.runtime.lastError.message,
+          },
+          event.origin
+        );
+      } else {
+        console.log(
+          `Relayed '${method}' request to service worker. Success: ${response.success}`
+        );
+        // Send a response back to the main world
+        event.source.postMessage(
+          {
+            type: "REQUEST_HEADER_MODIFIER_API_RESPONSE",
+            messageId: messageId, // Include messageId in response
+            success: response.success,
+            data: response.data, // Pass any data from service worker back
+          },
+          event.origin
+        );
       }
-    );
-  }
+    }
+  );
 });
