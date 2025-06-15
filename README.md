@@ -49,7 +49,7 @@ If you've previously installed a version of this extension, updated the extensio
       This will clear the browser's cache for that specific page and force it to load the latest versions of the injected content scripts (`content-script.js`, `main.js`).
 5.  **Check Console Logs:** Open the browser's developer console (F12 or `Cmd + Option + I`) on the web page, and if you're debugging service worker interactions, open the service worker's console by clicking the "service worker" link under your extension on `chrome://extensions`. Look for the `console.log` messages from `main.js`, `content-script.js`, and `service-worker.js` to confirm the correct message flow.
 
-## User Interface Usage
+## Web Interface Usage
 
 1. Click the extension icon in the Chrome toolbar to open the popup.
 
