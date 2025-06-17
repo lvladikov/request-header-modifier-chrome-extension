@@ -285,8 +285,6 @@ The extension requires the following permissions:
 
 - `activeTab`: To access the currently active tab.
 
-- `scripting`: To inject scripts into web pages.
-
 - `host_permissions`: `<all_urls>`: To modify headers for all URLs.
 
 ---

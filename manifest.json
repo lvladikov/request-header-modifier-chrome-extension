@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "Request Headers (including CORS) Modifier",
-  "version": "2.1",
+  "version": "2.2",
   "description": "Modifies request headers (including CORS) for development purposes!",
-  "permissions": ["declarativeNetRequest", "storage", "activeTab", "scripting"],
+  "permissions": ["declarativeNetRequest", "storage", "activeTab"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "service-worker.js"
