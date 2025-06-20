@@ -5,11 +5,11 @@ const BADGE_OFF = { text: "OFF", color: "#a70606" }; // Red
 
 // Initialization
 chrome.runtime.onInstalled.addListener(() => {
-  // On first install, set the state to enabled.
-  chrome.storage.local.set({ isEnabled: true }, () => {
+  // On first install, set the state to disabled.
+  chrome.storage.local.set({ isEnabled: false }, () => {
     // Explicitly update badge here after setting isEnabled
-    chrome.action.setBadgeText({ text: BADGE_ON.text });
-    chrome.action.setBadgeBackgroundColor({ color: BADGE_ON.color });
+    chrome.action.setBadgeText({ text: BADGE_OFF.text });
+    chrome.action.setBadgeBackgroundColor({ color: BADGE_OFF.color });
   });
   // Apply any rules that might have been saved in sync storage previously.
   applyRulesFromStorage();

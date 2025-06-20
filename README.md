@@ -28,6 +28,16 @@ The Request Headers (including CORS) Modifier is a Chrome extension designed to 
 
 ## Installation
 
+### Installing from Chrome Web Store
+
+1. Open the Chrome Web Store Extension page and follow instructions: https://chromewebstore.google.com/detail/fbgpcnabikdbchnhloamemjepdmcfdak
+
+2. Keep in mind that the Chrome Web Store version might be slighlty behind the GitHub Unpacked Extension version here, this is due to Chrome Web Store review time. It would eventually catchup as I intend to support both.
+
+3. Using the Chrome Web Store Extension, you can also install in other Chromium based browsers such as Edge and Brave.
+
+### Installing as Unpacked Extension from the code available here on GitHub
+
 1. Download the project files.
 
 2. Open Chrome and navigate to `chrome://extensions`.
